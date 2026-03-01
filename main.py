@@ -117,7 +117,7 @@ def save_listing(conn, listing):
     conn.commit()
 
 
-def export_to_google_sheet(listings, webapp_url, dry_run=False):
+def export_to_google_sheet(listings, webapp_url, sheet_url='', dry_run=False):
     if dry_run:
         logger.info(f"[DRY-RUN] Wuerde {len(listings)} Eintraege ins Google Sheet schreiben")
         return True
@@ -129,31 +129,40 @@ def export_to_google_sheet(listings, webapp_url, dry_run=False):
     data = []
     for l in listings:
         rn = l.get('rendite_normal') or 0
-        rw = l.get('rendite_wg') or 0
-        rendite_normal_str = f"{rn:.1f}%"
-        rendite_wg_str = f"{rw:.1f}%"
-        ok_normal = "OK" if rn >= 5.0 else "NEIN"
-        ok_wg = "OK" if rw >= 6.0 else "NEIN"
+        qm = l.get('sqm') or 0
+        preis = l.get('price') or 0
+        qm_preis = round(preis / qm) if qm > 0 else 0
+        # Jahreskaltmiete schaetzen: Kaufpreis / Kaufpreisfaktor
+        kaufpreis_faktor = l.get('kaufpreisfaktor') or 0
+        jahreskaltmiete = round(preis / kaufpreis_faktor) if kaufpreis_faktor > 0 else 0
+        rendite_str = f"{rn:.1f}%"
+
+        adresse = l.get('address', '')
+        # Versuche Stadt und Strasse zu trennen
+        if ',' in adresse:
+            parts = adresse.rsplit(',', 1)
+            strasse = parts[0].strip()
+            stadt = parts[1].strip()
+        else:
+            strasse = adresse
+            stadt = ''
 
         data.append({
-            "datum": datetime.now().strftime("%Y-%m-%d"),
-            "platform": l.get('platform', ''),
-            "titel": l.get('title', ''),
-            "preis": l.get('price') or 0,
-            "zimmer": l.get('rooms') or 0,
-            "qm": l.get('sqm') or 0,
-            "adresse": l.get('address', ''),
+            "status": "",
             "url": l.get('url', ''),
-            "rendite_normal": rendite_normal_str,
-            "ok_normal": ok_normal,
-            "rendite_wg": rendite_wg_str,
-            "ok_wg": ok_wg,
-            "kauf_faktor": round(l.get('kaufpreisfaktor') or 0, 1),
-            "score": l.get('score') or 0,
-            "leerstand": "Ja" if l.get('leerstand') else "Nein",
-            "wg_geeignet": "Ja" if l.get('wg_geeignet') else "Nein",
-            "empfehlung": l.get('empfehlung', ''),
-            "preis_pro_zimmer": round(l.get('preis_pro_zimmer') or 0),
+            "expose": "",
+            "stadt": stadt,
+            "strasse": strasse,
+            "preis": preis,
+            "zimmer": l.get('rooms') or 0,
+            "makler": l.get('makler', ''),
+            "notiz": "",
+            "qm": qm,
+            "qm_preis": qm_preis,
+            "jahreskaltmiete": jahreskaltmiete,
+            "rendite": rendite_str,
+            "baujahr": l.get('baujahr', ''),
+            "notiz2": "",
         })
 
     try:
@@ -178,6 +187,7 @@ def send_sms(listings, config, dry_run=False):
     auth_token = os.environ.get('TWILIO_AUTH_TOKEN')
     from_number = os.environ.get('TWILIO_FROM_NUMBER')
     to_number = os.environ.get('TWILIO_TO_NUMBER')
+    sheet_url = os.environ.get('GOOGLE_SHEETS_URL', '')
 
     if dry_run:
         logger.info(f"[DRY-RUN] Wuerde SMS senden mit {len(listings)} Objekten")
@@ -189,6 +199,8 @@ def send_sms(listings, config, dry_run=False):
 
     if not listings:
         body = f"[Immo-Scanner Freiburg] {datetime.now().strftime('%d.%m.%Y')}: Keine neuen Objekte gefunden."
+        if sheet_url:
+            body += f"\n{sheet_url}"
     else:
         top5 = sorted(listings, key=lambda x: x.get('score') or 0, reverse=True)[:5]
         lines = [f"Immo-Scanner {datetime.now().strftime('%d.%m.')}: {len(listings)} neue Objekte!"]
@@ -203,7 +215,9 @@ def send_sms(listings, config, dry_run=False):
                 f"Score:{sc}"
             )
         if len(listings) > 5:
-            lines.append(f"+ {len(listings)-5} weitere >> Google Sheet")
+            lines.append(f"+ {len(listings)-5} weitere")
+        if sheet_url:
+            lines.append(f"{sheet_url}")
         body = "\n".join(lines)
 
     try:
