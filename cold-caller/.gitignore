@@ -1,0 +1,5 @@
+.env
+call_log_*.json
+__pycache__/
+*.pyc
+kontakte.csv
