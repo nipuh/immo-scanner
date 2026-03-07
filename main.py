@@ -227,19 +227,13 @@ def main():
 
     logger.info(f"Neue Listings: {len(new_listings)} von {len(raw_listings)}")
 
-    interessante = [
-        l for l in new_listings
-        if (l.get('score', 0) > 0) and
-           (l.get('rendite_normal', 0) >= 5.0 or
-            l.get('rendite_wg', 0) >= 6.0)
-    ]
-    interessante.sort(key=lambda x: x.get('score', 0), reverse=True)
-    logger.info(f"Interessante Listings: {len(interessante)}")
-
-    if interessante:
-        export_to_google_sheet(interessante, webapp_url, dry_run=args.dry_run)
-
-    notify(interessante, config, dry_run=args.dry_run)
+    # Alle neuen Listings ins Google Sheet und an Slack senden
+    if new_listings:
+        new_listings_sorted = sorted(new_listings, key=lambda x: x.get('score', 0), reverse=True)
+        export_to_google_sheet(new_listings_sorted, webapp_url, dry_run=args.dry_run)
+        notify(new_listings_sorted, config, dry_run=args.dry_run)
+    else:
+        logger.info("Keine neuen Listings gefunden - kein Export noetig")
 
     conn.close()
     logger.info("Immo-Scanner abgeschlossen")
