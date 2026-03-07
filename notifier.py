@@ -11,6 +11,8 @@ import requests
 logger = logging.getLogger(__name__)
 
 SLACK_WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL", "")
+SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN", "")
+SLACK_CHANNEL = os.environ.get("SLACK_CHANNEL", "#immo-scanner")
 
 
 def _build_slack_message(listings):
@@ -64,25 +66,43 @@ def _build_slack_message(listings):
 
 
 def _send_slack(listings):
-    """Sendet die Nachricht an Slack via Webhook."""
-    if not SLACK_WEBHOOK_URL:
-        logger.warning("SLACK_WEBHOOK_URL nicht gesetzt - Slack-Benachrichtigung uebersprungen")
+    """Sendet die Nachricht an Slack via Bot Token (bevorzugt) oder Webhook."""
+    if not SLACK_BOT_TOKEN and not SLACK_WEBHOOK_URL:
+        logger.warning("Weder SLACK_BOT_TOKEN noch SLACK_WEBHOOK_URL gesetzt - Slack uebersprungen")
         return False
 
     payload = _build_slack_message(listings)
 
     try:
-        resp = requests.post(
-            SLACK_WEBHOOK_URL,
-            json=payload,
-            timeout=15
-        )
-        if resp.status_code == 200:
-            logger.info(f"Slack: {len(listings)} Objekte erfolgreich gesendet")
-            return True
+        if SLACK_BOT_TOKEN:
+            # Bevorzugt: Slack Web API mit explizitem Channel
+            payload["channel"] = SLACK_CHANNEL
+            resp = requests.post(
+                "https://slack.com/api/chat.postMessage",
+                json=payload,
+                headers={"Authorization": f"Bearer {SLACK_BOT_TOKEN}"},
+                timeout=15
+            )
+            data = resp.json()
+            if data.get("ok"):
+                logger.info(f"Slack ({SLACK_CHANNEL}): {len(listings)} Objekte erfolgreich gesendet")
+                return True
+            else:
+                logger.error(f"Slack API Fehler: {data.get('error', 'unbekannt')}")
+                return False
         else:
-            logger.error(f"Slack Fehler: {resp.status_code} - {resp.text}")
-            return False
+            # Fallback: Webhook
+            resp = requests.post(
+                SLACK_WEBHOOK_URL,
+                json=payload,
+                timeout=15
+            )
+            if resp.status_code == 200:
+                logger.info(f"Slack: {len(listings)} Objekte erfolgreich gesendet")
+                return True
+            else:
+                logger.error(f"Slack Fehler: {resp.status_code} - {resp.text}")
+                return False
     except Exception as e:
         logger.error(f"Slack Benachrichtigung fehlgeschlagen: {e}")
         return False
