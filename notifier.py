@@ -110,6 +110,74 @@ def _send_slack(listings):
         return False
 
 
+def send_status(total_scraped, new_count, dry_run=False):
+    """Sendet eine taegliche Status-Zusammenfassung an Slack."""
+    heute = datetime.now().strftime('%d.%m.%Y %H:%M')
+
+    if new_count > 0:
+        emoji = ":house_with_garden:"
+        status = f"{new_count} neue Objekte gefunden!"
+    elif total_scraped > 0:
+        emoji = ":zzz:"
+        status = "Keine neuen Objekte seit dem letzten Scan."
+    else:
+        emoji = ":warning:"
+        status = "Keine Inserate gescrapt - moeglicherweise Scraper-Problem."
+
+    text = (
+        f"{emoji} *Immo-Scanner Status* | {heute}\n\n"
+        f"{status}\n\n"
+        f"Gescrapt: *{total_scraped}* | Neu: *{new_count}*"
+    )
+
+    payload = {
+        "text": f"Immo-Scanner: {status}",
+        "blocks": [
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": text}
+            },
+            {"type": "divider"}
+        ]
+    }
+
+    if dry_run:
+        logger.info(f"[DRY-RUN] Status: {status}")
+        return True
+
+    if not SLACK_BOT_TOKEN and not SLACK_WEBHOOK_URL:
+        logger.warning("Weder SLACK_BOT_TOKEN noch SLACK_WEBHOOK_URL gesetzt - Status uebersprungen")
+        return False
+
+    try:
+        if SLACK_BOT_TOKEN:
+            payload["channel"] = SLACK_CHANNEL
+            resp = requests.post(
+                "https://slack.com/api/chat.postMessage",
+                json=payload,
+                headers={"Authorization": f"Bearer {SLACK_BOT_TOKEN}"},
+                timeout=15
+            )
+            data = resp.json()
+            if data.get("ok"):
+                logger.info("Status-Nachricht an Slack gesendet")
+                return True
+            else:
+                logger.error(f"Slack Status Fehler: {data.get('error', 'unbekannt')}")
+                return False
+        else:
+            resp = requests.post(SLACK_WEBHOOK_URL, json=payload, timeout=15)
+            if resp.status_code == 200:
+                logger.info("Status-Nachricht an Slack gesendet")
+                return True
+            else:
+                logger.error(f"Slack Status Fehler: {resp.status_code} - {resp.text}")
+                return False
+    except Exception as e:
+        logger.error(f"Slack Status-Nachricht fehlgeschlagen: {e}")
+        return False
+
+
 def notify(listings, config, dry_run=False):
     """Benachrichtigung ueber neue Listings (Slack + Log)."""
     if not listings:

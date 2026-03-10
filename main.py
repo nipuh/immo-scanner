@@ -18,7 +18,7 @@ import yaml
 
 from scraper import ImmobilienScraper
 from evaluator import BierdeckelEvaluator
-from notifier import notify
+from notifier import notify, send_status
 
 logging.basicConfig(
     level=logging.INFO,
@@ -236,6 +236,13 @@ def main():
         notify(new_listings_sorted, config, dry_run=args.dry_run)
     else:
         logger.info("Keine neuen Listings gefunden - kein Export noetig")
+
+    # Immer eine Status-Nachricht senden
+    send_status(
+        total_scraped=len(raw_listings),
+        new_count=len(new_listings),
+        dry_run=args.dry_run
+    )
 
     conn.close()
     logger.info("Immo-Scanner abgeschlossen")
